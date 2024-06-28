@@ -12,6 +12,7 @@ socketio = SocketIO(app)
 
 db.init_app(app)
 
+
 @app.route("/payments/pix", methods=["POST"])
 def create_payment_pix():
     data = request.get_json()
@@ -34,13 +35,35 @@ def create_payment_pix():
         {"message": "The payment has been created.", "payment": new_payment.to_dict()}
     )
 
+
 @app.route("/payments/pix/qrcode/<file_name>", methods=["GET"])
 def get_qrcode_image(file_name):
     return send_file(f"static/img/{file_name}.png", mimetype="image/png")
 
 
-@app.route("/payments/pix/confirmation", methods=["POST`"])
+@app.route("/payments/pix/confirmation", methods=["POST"])
 def pix_confirmation():
+    data = request.get_json()
+
+    if "bank_payment_id" not in data and "value" not in data:
+        return jsonify({"message": "Invalid payment data."}), 400
+
+    payment = Payment.query.filter_by(
+        bank_payment_id=data.get("bank_payment_id")
+    ).first()
+
+    if payment.paid is True:
+        return jsonify({"message": "Payment has already been confirmed."})
+
+    if not payment:
+        return jsonify({"message": "Payment not found."}), 404
+
+    if data.get("value") != payment.value:
+        return jsonify({"message": "Invalid payment data."}), 400
+
+    payment.paid = True
+    db.session.commit()
+
     return jsonify({"message": "The payment has been confirmed."})
 
 
@@ -48,15 +71,29 @@ def pix_confirmation():
 def payment_pix_page(payment_id):
     payment = Payment.query.get(payment_id)
     if payment is None:
-        return render_template('404.html') 
+        return render_template("404.html")
     if payment.paid is True:
-        return render_template('confirmed_payment.html', payment_id=payment.id, value=payment.value, host="http://127.0.0.1:5000", qr_code=payment.qr_code)
-    return render_template('payment.html', payment_id=payment.id, value=payment.value, host="http://127.0.0.1:5000", qr_code=payment.qr_code)
+        return render_template(
+            "confirmed_payment.html",
+            payment_id=payment.id,
+            value=payment.value,
+            host="http://127.0.0.1:5000",
+            qr_code=payment.qr_code,
+        )
+    return render_template(
+        "payment.html",
+        payment_id=payment.id,
+        value=payment.value,
+        host="http://127.0.0.1:5000",
+        qr_code=payment.qr_code,
+    )
+
 
 # websocket section
 @socketio.on("connect")
 def handle_connection():
     print("Client connected")
+
 
 if __name__ == "__main__":
     socketio.run(app, debug=True)
